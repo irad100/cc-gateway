@@ -10,7 +10,10 @@ import (
 )
 
 func newMonitorCmd() *cobra.Command {
-	var serverURL string
+	var (
+		serverURL string
+		token     string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "monitor",
@@ -22,9 +25,9 @@ func newMonitorCmd() *cobra.Command {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 
-			go tui.ListenSSE(ctx, serverURL, p)
-			go tui.FetchSessions(ctx, serverURL, p)
-			go tui.FetchMetrics(ctx, serverURL, p)
+			go tui.ListenSSE(ctx, serverURL, token, p)
+			go tui.FetchSessions(ctx, serverURL, token, p)
+			go tui.FetchMetrics(ctx, serverURL, token, p)
 
 			if _, err := p.Run(); err != nil {
 				return fmt.Errorf("monitor: %w", err)
@@ -36,6 +39,10 @@ func newMonitorCmd() *cobra.Command {
 	cmd.Flags().StringVar(
 		&serverURL, "url", "http://localhost:8080",
 		"gateway server URL",
+	)
+	cmd.Flags().StringVar(
+		&token, "token", "",
+		"bearer token for API authentication",
 	)
 
 	return cmd
