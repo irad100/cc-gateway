@@ -12,15 +12,15 @@ import (
 
 // Policy defines a single rule evaluated against hook events.
 type Policy struct {
-	Name        string      `yaml:"name"`
-	Description string      `yaml:"description"`
-	Enabled     bool        `yaml:"enabled"`
-	Event       string      `yaml:"event"`
-	Matcher     string      `yaml:"matcher"`
-	Conditions  []Condition `yaml:"conditions"`
-	Action      string      `yaml:"action"`
-	Message     string      `yaml:"message"`
-	Priority    int         `yaml:"priority"`
+	Name        string      `yaml:"name" json:"name"`
+	Description string      `yaml:"description" json:"description"`
+	Enabled     bool        `yaml:"enabled" json:"enabled"`
+	Event       string      `yaml:"event" json:"event"`
+	Matcher     string      `yaml:"matcher" json:"matcher"`
+	Conditions  []Condition `yaml:"conditions" json:"conditions"`
+	Action      string      `yaml:"action" json:"action"`
+	Message     string      `yaml:"message" json:"message"`
+	Priority    int         `yaml:"priority" json:"priority"`
 }
 
 // UnmarshalYAML defaults Enabled to true.
@@ -36,17 +36,17 @@ func (p *Policy) UnmarshalYAML(unmarshal func(any) error) error {
 
 // Condition matches a field value against a precompiled regex.
 type Condition struct {
-	Field   string         `yaml:"field"`
-	Pattern string         `yaml:"pattern"`
-	Negate  bool           `yaml:"negate"`
+	Field   string         `yaml:"field" json:"field"`
+	Pattern string         `yaml:"pattern" json:"pattern"`
+	Negate  bool           `yaml:"negate" json:"negate"`
 	re      *regexp.Regexp
 }
 
 // EvalResult holds the outcome of policy evaluation.
 type EvalResult struct {
-	Action     string
-	PolicyName string
-	Message    string
+	Action     string `json:"action"`
+	PolicyName string `json:"policy_name"`
+	Message    string `json:"message"`
 }
 
 type policyFile struct {

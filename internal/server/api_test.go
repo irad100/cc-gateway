@@ -15,7 +15,7 @@ func seedEvents(
 	sessionID, userID, toolName, action string,
 ) {
 	t.Helper()
-	for i := range count {
+	for range count {
 		e := &storage.Event{
 			SessionID:    sessionID,
 			UserID:       userID,
@@ -23,7 +23,6 @@ func seedEvents(
 			ToolName:     toolName,
 			PolicyAction: action,
 		}
-		_ = i
 		if err := store.InsertEvent(context.Background(), e); err != nil {
 			t.Fatalf("seed event: %v", err)
 		}
@@ -180,10 +179,10 @@ policies:
 	if len(result) != 1 {
 		t.Fatalf("expected 1 policy, got %d", len(result))
 	}
-	if result[0]["Name"] != "test-policy" {
+	if result[0]["name"] != "test-policy" {
 		t.Errorf(
 			"expected policy name test-policy, got %v",
-			result[0]["Name"],
+			result[0]["name"],
 		)
 	}
 }
@@ -221,11 +220,11 @@ policies:
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if result["Action"] != "block" {
-		t.Errorf("expected action block, got %v", result["Action"])
+	if result["action"] != "block" {
+		t.Errorf("expected action block, got %v", result["action"])
 	}
-	if result["Message"] != "no bash" {
-		t.Errorf("expected message 'no bash', got %v", result["Message"])
+	if result["message"] != "no bash" {
+		t.Errorf("expected message 'no bash', got %v", result["message"])
 	}
 }
 
