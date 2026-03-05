@@ -85,15 +85,22 @@ func (a *BearerAuth) Wrap(next http.Handler) http.Handler {
 }
 
 // validateToken uses constant-time comparison on SHA-256 hashes.
+// Always iterates all entries to prevent timing side-channels.
 func (a *BearerAuth) validateToken(candidate string) (string, bool) {
 	candidateHash := HashToken(candidate)
+	var matchedUser string
+	var found int
 	for storedHash, userID := range a.tokenHashes {
 		if subtle.ConstantTimeCompare(
 			[]byte(candidateHash),
 			[]byte(storedHash),
 		) == 1 {
-			return userID, true
+			matchedUser = userID
+			found = 1
 		}
+	}
+	if found == 1 {
+		return matchedUser, true
 	}
 	return "", false
 }

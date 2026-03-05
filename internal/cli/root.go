@@ -37,8 +37,12 @@ func NewRootCmd() *cobra.Command {
 		"path to config file",
 	)
 
+	versionCmd := newVersionCmd()
+	versionCmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		return nil
+	}
 	cmd.AddCommand(newServeCmd())
-	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(versionCmd)
 	cmd.AddCommand(newPoliciesCmd())
 	cmd.AddCommand(newLogsCmd())
 	cmd.AddCommand(newUsersCmd())

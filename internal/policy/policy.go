@@ -61,7 +61,25 @@ func ParseYAML(data []byte) ([]Policy, error) {
 		return nil, fmt.Errorf("unmarshal policies: %w", err)
 	}
 
+	validActions := map[string]bool{"allow": true, "block": true}
+	validEvents := map[string]bool{
+		"PreToolUse": true, "PostToolUse": true,
+		"Notification": true, "Stop": true,
+	}
+
 	for i := range pf.Policies {
+		p := &pf.Policies[i]
+		if !validActions[p.Action] {
+			return nil, fmt.Errorf(
+				"policy %q: invalid action %q (must be allow or block)",
+				p.Name, p.Action,
+			)
+		}
+		if !validEvents[p.Event] {
+			return nil, fmt.Errorf(
+				"policy %q: invalid event %q", p.Name, p.Event,
+			)
+		}
 		for j := range pf.Policies[i].Conditions {
 			c := &pf.Policies[i].Conditions[j]
 			re, err := regexp.Compile(c.Pattern)

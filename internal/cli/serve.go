@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/irad100/cc-gateway/internal/auth"
 	"github.com/irad100/cc-gateway/internal/policy"
@@ -107,7 +108,11 @@ func runServe(ctx context.Context) error {
 		return fmt.Errorf("server exited: %w", err)
 	case <-ctx.Done():
 		logger.Info("shutting down server")
-		if err := srv.Shutdown(context.Background()); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(), 15*time.Second,
+		)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("server shutdown: %w", err)
 		}
 		return nil

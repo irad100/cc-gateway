@@ -82,7 +82,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) handlePreToolUse(w http.ResponseWriter, r *http.Request) {
 	var input hook.PreToolUseInput
-	if err := decodeJSON(r, &input); err != nil {
+	if err := decodeJSON(w, r, &input); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
@@ -106,7 +106,7 @@ func (s *Server) handlePreToolUse(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePostToolUse(w http.ResponseWriter, r *http.Request) {
 	var input hook.PostToolUseInput
-	if err := decodeJSON(r, &input); err != nil {
+	if err := decodeJSON(w, r, &input); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
@@ -119,7 +119,7 @@ func (s *Server) handlePostToolUse(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleNotification(w http.ResponseWriter, r *http.Request) {
 	var input hook.NotificationInput
-	if err := decodeJSON(r, &input); err != nil {
+	if err := decodeJSON(w, r, &input); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
@@ -132,7 +132,7 @@ func (s *Server) handleNotification(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	var input hook.StopInput
-	if err := decodeJSON(r, &input); err != nil {
+	if err := decodeJSON(w, r, &input); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
@@ -189,8 +189,8 @@ func (s *Server) logEvent(
 	}
 }
 
-func decodeJSON(r *http.Request, v any) error {
-	r.Body = http.MaxBytesReader(nil, r.Body, maxBodySize)
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("decode request body: %w", err)

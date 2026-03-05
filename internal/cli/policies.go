@@ -118,7 +118,8 @@ func newPoliciesTestCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("event", "", "JSON event to test")
+	cmd.Flags().String("event", "", "JSON event to test (required)")
 	cmd.Flags().String("policy", "", "Specific policy to test against")
+	_ = cmd.MarkFlagRequired("event")
 	return cmd
 }
