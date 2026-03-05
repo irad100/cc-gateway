@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" fill="none">
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Shield body -->
+  <path d="M80 28 L140 48 V105 C140 145 110 170 80 182 C50 170 20 145 20 105 V48 Z"
+        fill="url(#shield)" opacity="0.15" stroke="url(#shield)" stroke-width="3"/>
+
+  <!-- Inner shield -->
+  <path d="M80 44 L126 59 V105 C126 136 104 155 80 164 C56 155 34 136 34 105 V59 Z"
+        fill="url(#shield)" opacity="0.08"/>
+
+  <!-- Lightning bolt inside shield -->
+  <path d="M90 62 L68 108 H84 L72 148 L104 96 H88 Z"
+        fill="url(#bolt)" filter="url(#glow)"/>
+
+  <!-- Gateway bars (signal/gate lines) -->
+  <g stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" opacity="0.5">
+    <path d="M148 80 C158 80 162 70 172 70"/>
+    <path d="M148 100 C158 100 162 100 172 100"/>
+    <path d="M148 120 C158 120 162 130 172 130"/>
+  </g>
+
+  <!-- "cc" text -->
+  <text x="188" y="128" font-family="ui-monospace, 'Cascadia Code', 'Fira Code', Menlo, monospace"
+        font-size="80" font-weight="800" fill="#e2e8f0" letter-spacing="-4">cc</text>
+
+  <!-- hyphen -->
+  <rect x="332" y="98" width="24" height="7" rx="3.5" fill="#6366f1"/>
+
+  <!-- "gateway" text -->
+  <text x="366" y="128" font-family="ui-monospace, 'Cascadia Code', 'Fira Code', Menlo, monospace"
+        font-size="80" font-weight="800" fill="#e2e8f0" letter-spacing="-4">gateway</text>
+
+  <!-- Tagline -->
+  <text x="190" y="160" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif"
+        font-size="16" fill="#94a3b8" letter-spacing="2">SECURITY GATEWAY FOR CLAUDE CODE</text>
+</svg>
