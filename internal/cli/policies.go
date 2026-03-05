@@ -105,8 +105,10 @@ func newPoliciesTestCmd() *cobra.Command {
 				policies = filtered
 			}
 
-			engine := policy.NewEngine(policies)
-			result := engine.Evaluate(input.Event, input.ToolName, input.Input)
+			engine := policy.NewEngine(policies, "allow")
+			result := engine.Evaluate(
+				input.Event, input.ToolName, input.Input, policy.EvalMeta{},
+			)
 
 			fmt.Printf("Action: %s\n", result.Action)
 			if result.PolicyName != "" {

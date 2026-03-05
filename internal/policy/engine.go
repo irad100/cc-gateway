@@ -3,21 +3,32 @@ package policy
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"sync"
 )
 
+// EvalMeta holds contextual metadata passed alongside tool input.
+type EvalMeta struct {
+	Cwd            string
+	PermissionMode string
+}
+
 // Engine evaluates hook events against a sorted list of policies.
 type Engine struct {
-	mu       sync.RWMutex
-	policies []Policy
+	mu            sync.RWMutex
+	policies      []Policy
+	defaultAction string
 }
 
 // NewEngine creates an Engine with the given policies sorted by
 // priority (descending), then name (ascending).
-func NewEngine(policies []Policy) *Engine {
-	e := &Engine{}
+func NewEngine(policies []Policy, defaultAction string) *Engine {
+	e := &Engine{defaultAction: defaultAction}
+	if e.defaultAction == "" {
+		e.defaultAction = "allow"
+	}
 	e.SetPolicies(policies)
 	return e
 }
@@ -48,11 +59,12 @@ func (e *Engine) Policies() []Policy {
 }
 
 // Evaluate checks the event against all policies and returns the
-// result of the first matching policy. Returns an allow result if
-// no policy matches.
+// result of the first matching policy. Returns the default action
+// result if no policy matches.
 func (e *Engine) Evaluate(
 	event, toolName string,
 	toolInput json.RawMessage,
+	meta EvalMeta,
 ) EvalResult {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -64,10 +76,10 @@ func (e *Engine) Evaluate(
 		if p.Event != event {
 			continue
 		}
-		if p.Matcher != "" && p.Matcher != toolName {
+		if !matchTool(p.Matcher, toolName) {
 			continue
 		}
-		if matchesAll(p.Conditions, toolInput) {
+		if matchesAll(p.Conditions, toolInput, meta) {
 			return EvalResult{
 				Action:     p.Action,
 				PolicyName: p.Name,
@@ -76,13 +88,27 @@ func (e *Engine) Evaluate(
 		}
 	}
 
-	return EvalResult{Action: "allow"}
+	return EvalResult{Action: e.defaultAction}
+}
+
+// matchTool checks whether toolName matches the glob pattern.
+// An empty pattern matches all tools.
+func matchTool(pattern, toolName string) bool {
+	if pattern == "" {
+		return true
+	}
+	matched, err := path.Match(pattern, toolName)
+	if err != nil {
+		return pattern == toolName
+	}
+	return matched
 }
 
 // matchesAll returns true when every condition matches the input.
 func matchesAll(
 	conditions []Condition,
 	toolInput json.RawMessage,
+	meta EvalMeta,
 ) bool {
 	var inputMap map[string]any
 	if len(toolInput) > 0 {
@@ -92,7 +118,15 @@ func matchesAll(
 	}
 
 	for _, c := range conditions {
-		val := extractField(inputMap, c.Field)
+		var val string
+		switch c.Field {
+		case "cwd":
+			val = meta.Cwd
+		case "permission_mode":
+			val = meta.PermissionMode
+		default:
+			val = extractField(inputMap, c.Field)
+		}
 		matched := c.re.MatchString(val)
 		if c.Negate {
 			matched = !matched

@@ -161,3 +161,91 @@ func TestQueryEventsFilters(t *testing.T) {
 		}
 	})
 }
+
+func TestPruneOldEvents(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	old := now.Add(-48 * time.Hour)
+	recent := now.Add(-1 * time.Hour)
+
+	events := []Event{
+		{
+			SessionID:    "s1",
+			UserID:       "alice",
+			EventType:    "PreToolUse",
+			ToolName:     "Bash",
+			PolicyAction: "allow",
+			CreatedAt:    old,
+		},
+		{
+			SessionID:    "s2",
+			UserID:       "alice",
+			EventType:    "PreToolUse",
+			ToolName:     "Bash",
+			PolicyAction: "allow",
+			CreatedAt:    old.Add(-time.Hour),
+		},
+		{
+			SessionID:    "s3",
+			UserID:       "bob",
+			EventType:    "PreToolUse",
+			ToolName:     "Read",
+			PolicyAction: "allow",
+			CreatedAt:    recent,
+		},
+	}
+	for i := range events {
+		if err := store.InsertEvent(ctx, &events[i]); err != nil {
+			t.Fatalf("InsertEvent[%d]: %v", i, err)
+		}
+	}
+
+	cutoff := now.Add(-24 * time.Hour)
+	deleted, err := store.PruneOldEvents(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("PruneOldEvents: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted, got %d", deleted)
+	}
+
+	remaining, err := store.QueryEvents(ctx, EventFilter{})
+	if err != nil {
+		t.Fatalf("QueryEvents after prune: %v", err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("expected 1 remaining event, got %d", len(remaining))
+	}
+	if remaining[0].UserID != "bob" {
+		t.Errorf("expected bob's event to remain, got %q", remaining[0].UserID)
+	}
+}
+
+func TestPruneOldEventsNoneMatch(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	ev := &Event{
+		SessionID:    "s1",
+		UserID:       "alice",
+		EventType:    "PreToolUse",
+		ToolName:     "Bash",
+		PolicyAction: "allow",
+		CreatedAt:    now,
+	}
+	if err := store.InsertEvent(ctx, ev); err != nil {
+		t.Fatalf("InsertEvent: %v", err)
+	}
+
+	cutoff := now.Add(-24 * time.Hour)
+	deleted, err := store.PruneOldEvents(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("PruneOldEvents: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("expected 0 deleted, got %d", deleted)
+	}
+}

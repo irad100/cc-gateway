@@ -36,7 +36,7 @@ func TestWatcherReloadsOnChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := NewEngine(policies)
+	engine := NewEngine(policies, "allow")
 
 	logger := slog.New(slog.NewTextHandler(
 		os.Stderr, &slog.HandlerOptions{Level: slog.LevelError},
@@ -103,7 +103,7 @@ func TestWatcherIgnoresInvalidYAML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := NewEngine(policies)
+	engine := NewEngine(policies, "allow")
 
 	logger := slog.New(slog.NewTextHandler(
 		os.Stderr, &slog.HandlerOptions{Level: slog.LevelError},

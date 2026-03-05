@@ -34,6 +34,7 @@ type EventFilter struct {
 	Since        *time.Time
 	Until        *time.Time
 	Limit        int
+	Offset       int
 }
 
 // User represents an aggregated user record derived from events.
@@ -98,6 +99,12 @@ func New(dsn string) (*Store, error) {
 	}
 
 	return &Store{db: db, insertEvent: stmt}, nil
+}
+
+// DB returns the underlying database connection for use by other
+// packages that need direct SQL access (e.g., metrics).
+func (s *Store) DB() *sql.DB {
+	return s.db
 }
 
 // Close releases the prepared statement and closes the database.
@@ -176,8 +183,8 @@ func (s *Store) QueryEvents(
 	if limit <= 0 {
 		limit = 100
 	}
-	query += " LIMIT ?"
-	args = append(args, limit)
+	query += " LIMIT ? OFFSET ?"
+	args = append(args, limit, f.Offset)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -267,4 +274,69 @@ func (s *Store) UserActivity(
 		a.ToolUsage[name] = count
 	}
 	return &a, rows.Err()
+}
+
+// Session represents an aggregated session derived from events.
+type Session struct {
+	SessionID      string    `json:"session_id"`
+	UserID         string    `json:"user_id"`
+	StartedAt      time.Time `json:"started_at"`
+	EndedAt        time.Time `json:"ended_at"`
+	EventCount     int       `json:"event_count"`
+	ViolationCount int       `json:"violation_count"`
+}
+
+// ListSessions returns aggregated session records ordered by most
+// recent activity, with pagination via limit and offset.
+func (s *Store) ListSessions(
+	ctx context.Context, limit, offset int,
+) ([]Session, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT session_id, user_id,
+			MIN(created_at), MAX(created_at),
+			COUNT(*),
+			SUM(CASE WHEN policy_action = 'block' THEN 1 ELSE 0 END)
+		FROM events
+		GROUP BY session_id
+		ORDER BY MAX(created_at) DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []Session
+	for rows.Next() {
+		var sess Session
+		var startedAt, endedAt string
+		if err := rows.Scan(
+			&sess.SessionID, &sess.UserID,
+			&startedAt, &endedAt,
+			&sess.EventCount, &sess.ViolationCount,
+		); err != nil {
+			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		sess.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
+		sess.EndedAt, _ = time.Parse(time.RFC3339Nano, endedAt)
+		sessions = append(sessions, sess)
+	}
+	return sessions, rows.Err()
+}
+
+// PruneOldEvents deletes events created before the given time and
+// returns the number of rows deleted.
+func (s *Store) PruneOldEvents(
+	ctx context.Context, before time.Time,
+) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM events WHERE created_at < ?", before,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("prune events: %w", err)
+	}
+	return res.RowsAffected()
 }

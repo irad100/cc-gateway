@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -59,7 +60,7 @@ func newLogsCmd() *cobra.Command {
 	cmd.Flags().String("status", "", "Filter by action (allow/block)")
 	cmd.Flags().String("since", "", "Time range start (e.g., 1h, 2024-01-01)")
 	cmd.Flags().String("until", "", "Time range end")
-	cmd.Flags().String("format", "table", "Output format: table, json")
+	cmd.Flags().String("format", "table", "Output format: table, json, csv")
 	cmd.Flags().Int("limit", 100, "Max results")
 	return cmd
 }
@@ -81,22 +82,40 @@ func parseDuration(s string) (time.Time, error) {
 }
 
 func renderEvents(events []storage.Event, format string) error {
-	if format == "json" {
+	switch format {
+	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(events)
+	case "csv":
+		w := csv.NewWriter(os.Stdout)
+		w.Write([]string{
+			"time", "user", "tool", "action", "policy", "message",
+		})
+		for _, e := range events {
+			w.Write([]string{
+				e.CreatedAt.Format(time.RFC3339),
+				e.UserID,
+				e.ToolName,
+				e.PolicyAction,
+				e.PolicyName,
+				e.PolicyMessage,
+			})
+		}
+		w.Flush()
+		return w.Error()
+	default:
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "TIME\tUSER\tTOOL\tACTION\tPOLICY")
+		for _, e := range events {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+				e.CreatedAt.Format("15:04:05"),
+				e.UserID,
+				e.ToolName,
+				e.PolicyAction,
+				e.PolicyName,
+			)
+		}
+		return tw.Flush()
 	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tUSER\tTOOL\tACTION\tPOLICY")
-	for _, e := range events {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			e.CreatedAt.Format("15:04:05"),
-			e.UserID,
-			e.ToolName,
-			e.PolicyAction,
-			e.PolicyName,
-		)
-	}
-	return w.Flush()
 }
