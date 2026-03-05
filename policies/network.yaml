@@ -1,0 +1,20 @@
+policies:
+  - name: block-curl-pipe-bash
+    description: Block piping curl output to shell execution
+    event: PreToolUse
+    matcher: Bash
+    conditions:
+      - field: command
+        pattern: "curl.*\\|.*(?:bash|sh|zsh)"
+    action: block
+    message: "Piping curl output to shell is not allowed"
+
+  - name: block-wget-pipe-bash
+    description: Block piping wget output to shell execution
+    event: PreToolUse
+    matcher: Bash
+    conditions:
+      - field: command
+        pattern: "wget.*\\|.*(?:bash|sh|zsh)"
+    action: block
+    message: "Piping wget output to shell is not allowed"

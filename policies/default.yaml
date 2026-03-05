@@ -1,0 +1,40 @@
+policies:
+  - name: block-destructive-commands
+    description: Block dangerous shell commands that could damage the system
+    event: PreToolUse
+    matcher: Bash
+    conditions:
+      - field: command
+        pattern: "rm\\s+-rf\\s+/"
+    action: block
+    message: "Destructive rm -rf on root paths is not allowed"
+
+  - name: block-disk-format
+    description: Block disk formatting commands
+    event: PreToolUse
+    matcher: Bash
+    conditions:
+      - field: command
+        pattern: "mkfs\\.|dd\\s+if="
+    action: block
+    message: "Disk formatting commands are not allowed"
+
+  - name: block-secret-file-access
+    description: Block reading secret and key files
+    event: PreToolUse
+    matcher: Read
+    conditions:
+      - field: file_path
+        pattern: "\\.(env|pem|key|p12|pfx)$"
+    action: block
+    message: "Access to secret files is restricted by security policy"
+
+  - name: block-secret-file-write
+    description: Block writing to secret files
+    event: PreToolUse
+    matcher: Write
+    conditions:
+      - field: file_path
+        pattern: "\\.(env|pem|key|p12|pfx)$"
+    action: block
+    message: "Writing to secret files is restricted by security policy"
