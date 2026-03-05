@@ -10,6 +10,8 @@ import (
 	"github.com/irad100/cc-gateway/internal/storage"
 )
 
+const maxQueryLimit = 1000
+
 func queryInt(r *http.Request, key string, defaultVal int) int {
 	s := r.URL.Query().Get(key)
 	if s == "" {
@@ -18,6 +20,9 @@ func queryInt(r *http.Request, key string, defaultVal int) int {
 	v, err := strconv.Atoi(s)
 	if err != nil || v < 0 {
 		return defaultVal
+	}
+	if key == "limit" && v > maxQueryLimit {
+		return maxQueryLimit
 	}
 	return v
 }
