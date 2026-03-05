@@ -525,12 +525,13 @@ type sseDataPayload struct {
 func ListenSSE(
 	ctx context.Context,
 	serverURL string,
+	token string,
 	p *tea.Program,
 ) {
 	url := strings.TrimRight(serverURL, "/") + "/events/stream"
 
 	for {
-		if err := streamSSE(ctx, url, p); err != nil {
+		if err := streamSSE(ctx, url, token, p); err != nil {
 			p.Send(errMsg(err))
 		}
 
@@ -546,10 +547,11 @@ func ListenSSE(
 func FetchSessions(
 	ctx context.Context,
 	serverURL string,
+	token string,
 	p *tea.Program,
 ) {
 	url := strings.TrimRight(serverURL, "/") + "/api/v1/sessions?limit=50"
-	fetchPeriodic(ctx, url, p, func(data []byte) tea.Msg {
+	fetchPeriodic(ctx, url, token, p, func(data []byte) tea.Msg {
 		var sessions []SessionRow
 		if err := json.Unmarshal(data, &sessions); err != nil {
 			return errMsg(fmt.Errorf("parse sessions: %w", err))
@@ -562,10 +564,11 @@ func FetchSessions(
 func FetchMetrics(
 	ctx context.Context,
 	serverURL string,
+	token string,
 	p *tea.Program,
 ) {
 	url := strings.TrimRight(serverURL, "/") + "/api/v1/metrics?window=24h"
-	fetchPeriodic(ctx, url, p, func(data []byte) tea.Msg {
+	fetchPeriodic(ctx, url, token, p, func(data []byte) tea.Msg {
 		var ms MetricsSummary
 		if err := json.Unmarshal(data, &ms); err != nil {
 			return errMsg(fmt.Errorf("parse metrics: %w", err))
@@ -577,11 +580,12 @@ func FetchMetrics(
 func fetchPeriodic(
 	ctx context.Context,
 	url string,
+	token string,
 	p *tea.Program,
 	parse func([]byte) tea.Msg,
 ) {
 	for {
-		data, err := httpGet(ctx, url)
+		data, err := httpGet(ctx, url, token)
 		if err == nil {
 			p.Send(parse(data))
 		}
@@ -594,10 +598,13 @@ func fetchPeriodic(
 	}
 }
 
-func httpGet(ctx context.Context, url string) ([]byte, error) {
+func httpGet(ctx context.Context, url, token string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -613,6 +620,7 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 func streamSSE(
 	ctx context.Context,
 	url string,
+	token string,
 	p *tea.Program,
 ) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -620,6 +628,9 @@ func streamSSE(
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
