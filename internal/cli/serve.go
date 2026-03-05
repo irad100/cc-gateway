@@ -146,7 +146,7 @@ func buildLogger(
 		f, err := os.OpenFile(
 			cfg.Output,
 			os.O_CREATE|os.O_APPEND|os.O_WRONLY,
-			0644,
+			0600,
 		)
 		if err != nil {
 			return nil, nil, fmt.Errorf(

@@ -12,16 +12,16 @@ import (
 
 // Event represents a single hook event stored in the database.
 type Event struct {
-	ID            int64
-	SessionID     string
-	UserID        string
-	EventType     string
-	ToolName      string
-	ToolParams    string
-	PolicyName    string
-	PolicyAction  string
-	PolicyMessage string
-	CreatedAt     time.Time
+	ID            int64     `json:"id"`
+	SessionID     string    `json:"session_id"`
+	UserID        string    `json:"user_id"`
+	EventType     string    `json:"event_type"`
+	ToolName      string    `json:"tool_name"`
+	ToolParams    string    `json:"tool_params"`
+	PolicyName    string    `json:"policy_name"`
+	PolicyAction  string    `json:"policy_action"`
+	PolicyMessage string    `json:"policy_message"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // EventFilter defines optional filters for querying events.
@@ -39,11 +39,10 @@ type EventFilter struct {
 
 // User represents an aggregated user record derived from events.
 type User struct {
-	ID           string
-	DisplayName  string
-	CreatedAt    time.Time
-	LastActiveAt time.Time
-	EventCount   int
+	ID           string    `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastActiveAt time.Time `json:"last_active_at"`
+	EventCount   int       `json:"event_count"`
 }
 
 // UserActivity holds aggregated activity stats for a single user.
@@ -229,7 +228,6 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 		); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
-		u.DisplayName = u.ID
 		users = append(users, u)
 	}
 	return users, rows.Err()
