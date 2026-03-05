@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,7 +15,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const maxEvents = 200
+const (
+	maxEvents = 200
+	tabCount  = 4
+)
 
 // EventRow holds display data for a single event.
 type EventRow struct {
@@ -25,19 +29,58 @@ type EventRow struct {
 	Policy string `json:"policy"`
 }
 
-// SSEMsg delivers a parsed event from the SSE goroutine.
-type SSEMsg EventRow
+// SessionRow holds display data for a session.
+type SessionRow struct {
+	SessionID  string `json:"session_id"`
+	User       string `json:"user_id"`
+	StartedAt  string `json:"started_at"`
+	Duration   string `json:"-"`
+	Events     int    `json:"event_count"`
+	Violations int    `json:"violation_count"`
+}
 
+// MetricsSummary holds aggregated metrics for display.
+type MetricsSummary struct {
+	ToolUsage          []stat `json:"tool_usage"`
+	ViolationsByPolicy []stat `json:"violations_by_policy"`
+	SessionCount       int    `json:"session_count"`
+	BlockAllowRatio    ratio  `json:"block_allow_ratio"`
+}
+
+type stat struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+type ratio struct {
+	Blocked int `json:"blocked"`
+	Allowed int `json:"allowed"`
+	Total   int `json:"total"`
+}
+
+// Message types
+type SSEMsg EventRow
+type sessionsMsg []SessionRow
+type metricsMsg MetricsSummary
 type errMsg error
+type tickMsg time.Time
 
 // Model is the Bubble Tea model for the TUI dashboard.
 type Model struct {
-	events    []EventRow
-	activeTab int
-	width     int
-	height    int
-	serverURL string
-	err       error
+	events     []EventRow
+	sessions   []SessionRow
+	metrics    MetricsSummary
+	activeTab  int
+	selectedIdx int
+	width      int
+	height     int
+	serverURL  string
+	err        error
+
+	filterActive bool
+	filterText   string
+	paused       bool
+	showHelp     bool
 }
 
 // New creates a Model targeting the given gateway server URL.
@@ -48,9 +91,15 @@ func New(serverURL string) Model {
 	}
 }
 
-// Init satisfies tea.Model. No initial command needed.
+func tickCmd() tea.Cmd {
+	return tea.Tick(10*time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+// Init starts the periodic refresh tick.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return tickCmd()
 }
 
 // Update handles messages and returns the updated model.
@@ -61,27 +110,84 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		if m.filterActive {
+			return m.updateFilter(msg)
+		}
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			m.activeTab = (m.activeTab + 1) % 2
+			m.activeTab = (m.activeTab + 1) % tabCount
+			m.selectedIdx = 0
 		case "1":
 			m.activeTab = 0
+			m.selectedIdx = 0
 		case "2":
 			m.activeTab = 1
+			m.selectedIdx = 0
+		case "3":
+			m.activeTab = 2
+			m.selectedIdx = 0
+		case "4":
+			m.activeTab = 3
+			m.selectedIdx = 0
+		case "/":
+			m.filterActive = true
+		case "p":
+			m.paused = !m.paused
+		case "?":
+			m.showHelp = true
+		case "j", "down":
+			m.selectedIdx++
+		case "k", "up":
+			if m.selectedIdx > 0 {
+				m.selectedIdx--
+			}
 		}
 
 	case SSEMsg:
-		m.events = append(m.events, EventRow(msg))
-		if len(m.events) > maxEvents {
-			m.events = m.events[len(m.events)-maxEvents:]
+		if !m.paused {
+			m.events = append(m.events, EventRow(msg))
+			if len(m.events) > maxEvents {
+				m.events = m.events[len(m.events)-maxEvents:]
+			}
 		}
+
+	case sessionsMsg:
+		m.sessions = []SessionRow(msg)
+
+	case metricsMsg:
+		m.metrics = MetricsSummary(msg)
+
+	case tickMsg:
+		return m, tickCmd()
 
 	case errMsg:
 		m.err = msg
 	}
 
+	return m, nil
+}
+
+func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "esc":
+		m.filterActive = false
+	case "backspace":
+		if len(m.filterText) > 0 {
+			m.filterText = m.filterText[:len(m.filterText)-1]
+		}
+	case "ctrl+c":
+		return m, tea.Quit
+	default:
+		if len(msg.String()) == 1 {
+			m.filterText += msg.String()
+		}
+	}
 	return m, nil
 }
 
@@ -110,6 +216,10 @@ var (
 	rowStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
 
+	selectedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("237"))
+
 	blockedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("196"))
 
@@ -119,6 +229,25 @@ var (
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("196")).
 			Bold(true)
+
+	pausedStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("214"))
+
+	metricLabelStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("12"))
+
+	metricValueStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("15"))
+
+	barStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("62"))
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Border(lipgloss.RoundedBorder()).
+			Padding(1, 2)
 )
 
 // View renders the TUI.
@@ -127,14 +256,21 @@ func (m Model) View() string {
 
 	// Header
 	title := titleStyle.Render(" cc-gateway ")
-	tab0 := inactiveTabStyle.Render("[1] Events")
-	tab1 := inactiveTabStyle.Render("[2] Violations")
-	if m.activeTab == 0 {
-		tab0 = activeTabStyle.Render("[1] Events")
-	} else {
-		tab1 = activeTabStyle.Render("[2] Violations")
+	tabs := []string{"[1] Events", "[2] Violations", "[3] Sessions", "[4] Metrics"}
+	var renderedTabs []string
+	for i, t := range tabs {
+		if i == m.activeTab {
+			renderedTabs = append(renderedTabs, activeTabStyle.Render(t))
+		} else {
+			renderedTabs = append(renderedTabs, inactiveTabStyle.Render(t))
+		}
 	}
-	header := lipgloss.JoinHorizontal(lipgloss.Top, title, "  ", tab0, " ", tab1)
+	header := lipgloss.JoinHorizontal(lipgloss.Top,
+		append([]string{title, "  "}, renderedTabs...)...,
+	)
+	if m.paused {
+		header += "  " + pausedStyle.Render("PAUSED")
+	}
 	b.WriteString(header)
 	b.WriteString("\n\n")
 
@@ -144,33 +280,38 @@ func (m Model) View() string {
 		b.WriteString("\n\n")
 	}
 
-	// Table
-	rows := m.visibleRows()
-	b.WriteString(renderTable(rows, m.height-6))
+	// Help overlay
+	if m.showHelp {
+		b.WriteString(renderHelp())
+		return b.String()
+	}
+
+	// Panel content
+	contentHeight := m.height - 6
+	switch m.activeTab {
+	case 0:
+		b.WriteString(m.renderEventsPanel(contentHeight, false))
+	case 1:
+		b.WriteString(m.renderEventsPanel(contentHeight, true))
+	case 2:
+		b.WriteString(m.renderSessionsPanel(contentHeight))
+	case 3:
+		b.WriteString(m.renderMetricsPanel(contentHeight))
+	}
 
 	// Footer
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(
-		"  q/ctrl+c quit | tab/1/2 switch panel",
-	))
+	footer := "  q quit | tab switch | / filter | p pause | ? help | j/k navigate"
+	if m.filterActive {
+		footer = fmt.Sprintf("  Filter: %s_  (Enter/Esc to close)", m.filterText)
+	}
+	b.WriteString(footerStyle.Render(footer))
 
 	return b.String()
 }
 
-func (m Model) visibleRows() []EventRow {
-	if m.activeTab == 0 {
-		return m.events
-	}
-	var blocked []EventRow
-	for _, e := range m.events {
-		if e.Action == "block" {
-			blocked = append(blocked, e)
-		}
-	}
-	return blocked
-}
-
-func renderTable(rows []EventRow, maxRows int) string {
+func (m Model) renderEventsPanel(maxRows int, violationsOnly bool) string {
+	rows := m.filteredEvents(violationsOnly)
 	var b strings.Builder
 
 	hdr := headerStyle.Render(fmt.Sprintf(
@@ -185,10 +326,13 @@ func renderTable(rows []EventRow, maxRows int) string {
 		start = len(rows) - maxRows
 	}
 
-	for _, row := range rows[start:] {
+	for i, row := range rows[start:] {
 		style := rowStyle
 		if row.Action == "block" {
 			style = blockedStyle
+		}
+		if i+start == m.selectedIdx {
+			style = selectedStyle
 		}
 		line := style.Render(fmt.Sprintf(
 			"  %-12s %-16s %-24s %-10s %s",
@@ -208,6 +352,146 @@ func renderTable(rows []EventRow, maxRows int) string {
 	}
 
 	return b.String()
+}
+
+func (m Model) filteredEvents(violationsOnly bool) []EventRow {
+	var rows []EventRow
+	for _, e := range m.events {
+		if violationsOnly && e.Action != "block" {
+			continue
+		}
+		if m.filterText != "" {
+			combined := e.User + e.Tool + e.Action + e.Policy
+			if !strings.Contains(
+				strings.ToLower(combined),
+				strings.ToLower(m.filterText),
+			) {
+				continue
+			}
+		}
+		rows = append(rows, e)
+	}
+	return rows
+}
+
+func (m Model) renderSessionsPanel(maxRows int) string {
+	var b strings.Builder
+
+	hdr := headerStyle.Render(fmt.Sprintf(
+		"  %-16s %-16s %-12s %-10s %-10s %s",
+		"SESSION", "USER", "STARTED", "DURATION", "EVENTS", "VIOLATIONS",
+	))
+	b.WriteString(hdr)
+	b.WriteString("\n")
+
+	if len(m.sessions) == 0 {
+		b.WriteString(footerStyle.Render("  (no sessions yet)"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	start := 0
+	if maxRows > 0 && len(m.sessions) > maxRows {
+		start = len(m.sessions) - maxRows
+	}
+
+	for i, s := range m.sessions[start:] {
+		style := rowStyle
+		if s.Violations > 0 {
+			style = blockedStyle
+		}
+		if i+start == m.selectedIdx {
+			style = selectedStyle
+		}
+		line := style.Render(fmt.Sprintf(
+			"  %-16s %-16s %-12s %-10s %-10d %d",
+			truncate(s.SessionID, 16),
+			truncate(s.User, 16),
+			truncate(s.StartedAt, 12),
+			truncate(s.Duration, 10),
+			s.Events,
+			s.Violations,
+		))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+func (m Model) renderMetricsPanel(_ int) string {
+	var b strings.Builder
+	ms := m.metrics
+
+	// Summary stats
+	b.WriteString(metricLabelStyle.Render("  Sessions: "))
+	b.WriteString(metricValueStyle.Render(fmt.Sprintf("%d", ms.SessionCount)))
+	b.WriteString("    ")
+	b.WriteString(metricLabelStyle.Render("Blocked: "))
+	b.WriteString(blockedStyle.Render(fmt.Sprintf("%d", ms.BlockAllowRatio.Blocked)))
+	b.WriteString("    ")
+	b.WriteString(metricLabelStyle.Render("Allowed: "))
+	b.WriteString(metricValueStyle.Render(fmt.Sprintf("%d", ms.BlockAllowRatio.Allowed)))
+	b.WriteString("    ")
+	b.WriteString(metricLabelStyle.Render("Total: "))
+	b.WriteString(metricValueStyle.Render(fmt.Sprintf("%d", ms.BlockAllowRatio.Total)))
+	b.WriteString("\n\n")
+
+	// Tool usage bar chart
+	b.WriteString(metricLabelStyle.Render("  Tool Usage (24h)"))
+	b.WriteString("\n")
+	if len(ms.ToolUsage) == 0 {
+		b.WriteString(footerStyle.Render("  (no data)"))
+		b.WriteString("\n")
+	} else {
+		maxCount := 0
+		for _, t := range ms.ToolUsage {
+			if t.Count > maxCount {
+				maxCount = t.Count
+			}
+		}
+		for _, t := range ms.ToolUsage {
+			barLen := 0
+			if maxCount > 0 {
+				barLen = (t.Count * 30) / maxCount
+			}
+			if barLen < 1 && t.Count > 0 {
+				barLen = 1
+			}
+			bar := barStyle.Render(strings.Repeat("█", barLen))
+			b.WriteString(fmt.Sprintf("  %-16s %s %d\n",
+				truncate(t.Name, 16), bar, t.Count))
+		}
+	}
+	b.WriteString("\n")
+
+	// Violations by policy
+	b.WriteString(metricLabelStyle.Render("  Violations by Policy"))
+	b.WriteString("\n")
+	if len(ms.ViolationsByPolicy) == 0 {
+		b.WriteString(footerStyle.Render("  (none)"))
+		b.WriteString("\n")
+	} else {
+		for _, v := range ms.ViolationsByPolicy {
+			b.WriteString(blockedStyle.Render(fmt.Sprintf(
+				"  %-32s %d\n", truncate(v.Name, 32), v.Count)))
+		}
+	}
+
+	return b.String()
+}
+
+func renderHelp() string {
+	help := `Keyboard Shortcuts
+
+  tab        Switch between panels
+  1-4        Jump to panel directly
+  /          Toggle filter input
+  p          Pause/resume live feed
+  ?          Toggle this help
+  j/k        Move selection up/down
+  q/ctrl+c   Quit`
+	return helpStyle.Render(help)
 }
 
 func truncate(s string, max int) string {
@@ -256,6 +540,74 @@ func ListenSSE(
 		case <-time.After(3 * time.Second):
 		}
 	}
+}
+
+// FetchSessions queries the API for session data and sends it to the TUI.
+func FetchSessions(
+	ctx context.Context,
+	serverURL string,
+	p *tea.Program,
+) {
+	url := strings.TrimRight(serverURL, "/") + "/api/v1/sessions?limit=50"
+	fetchPeriodic(ctx, url, p, func(data []byte) tea.Msg {
+		var sessions []SessionRow
+		if err := json.Unmarshal(data, &sessions); err != nil {
+			return errMsg(fmt.Errorf("parse sessions: %w", err))
+		}
+		return sessionsMsg(sessions)
+	})
+}
+
+// FetchMetrics queries the API for metrics data and sends it to the TUI.
+func FetchMetrics(
+	ctx context.Context,
+	serverURL string,
+	p *tea.Program,
+) {
+	url := strings.TrimRight(serverURL, "/") + "/api/v1/metrics?window=24h"
+	fetchPeriodic(ctx, url, p, func(data []byte) tea.Msg {
+		var ms MetricsSummary
+		if err := json.Unmarshal(data, &ms); err != nil {
+			return errMsg(fmt.Errorf("parse metrics: %w", err))
+		}
+		return metricsMsg(ms)
+	})
+}
+
+func fetchPeriodic(
+	ctx context.Context,
+	url string,
+	p *tea.Program,
+	parse func([]byte) tea.Msg,
+) {
+	for {
+		data, err := httpGet(ctx, url)
+		if err == nil {
+			p.Send(parse(data))
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+}
+
+func httpGet(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func streamSSE(

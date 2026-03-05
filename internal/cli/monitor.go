@@ -23,6 +23,8 @@ func newMonitorCmd() *cobra.Command {
 			defer cancel()
 
 			go tui.ListenSSE(ctx, serverURL, p)
+			go tui.FetchSessions(ctx, serverURL, p)
+			go tui.FetchMetrics(ctx, serverURL, p)
 
 			if _, err := p.Run(); err != nil {
 				return fmt.Errorf("monitor: %w", err)

@@ -11,6 +11,7 @@ import (
 	"github.com/irad100/cc-gateway/internal/auth"
 	"github.com/irad100/cc-gateway/internal/config"
 	"github.com/irad100/cc-gateway/internal/hook"
+	"github.com/irad100/cc-gateway/internal/metrics"
 	"github.com/irad100/cc-gateway/internal/policy"
 	"github.com/irad100/cc-gateway/internal/storage"
 )
@@ -24,12 +25,13 @@ func setupTestServer(t *testing.T, policies []policy.Policy) *Server {
 	}
 	t.Cleanup(func() { store.Close() })
 
-	engine := policy.NewEngine(policies)
+	engine := policy.NewEngine(policies, "allow")
+	mc := metrics.NewCollector(store.DB())
 	ba := auth.NewBearerAuth(map[string]string{})
 	logger := slog.Default()
 	cfg := config.Default().Server
 
-	return New(cfg, store, engine, ba, logger)
+	return New(cfg, store, engine, mc, ba, logger)
 }
 
 func doRequest(
