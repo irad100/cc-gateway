@@ -42,6 +42,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newPoliciesCmd())
 	cmd.AddCommand(newLogsCmd())
 	cmd.AddCommand(newUsersCmd())
+	cmd.AddCommand(newMonitorCmd())
 
 	return cmd
 }

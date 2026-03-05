@@ -24,6 +24,7 @@ type Server struct {
 	engine *policy.Engine
 	store  *storage.Store
 	auth   *auth.BearerAuth
+	broker *Broker
 	logger *slog.Logger
 }
 
@@ -35,10 +36,13 @@ func New(
 	ba *auth.BearerAuth,
 	logger *slog.Logger,
 ) *Server {
+	broker := NewBroker(logger)
+
 	s := &Server{
 		engine: engine,
 		store:  store,
 		auth:   ba,
+		broker: broker,
 		logger: logger,
 	}
 
@@ -48,6 +52,7 @@ func New(
 	mux.HandleFunc("POST /hooks/notification", s.handleNotification)
 	mux.HandleFunc("POST /hooks/stop", s.handleStop)
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.Handle("GET /events/stream", broker)
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr,
@@ -174,6 +179,14 @@ func (s *Server) logEvent(
 		"user", userID,
 		"action", result.Action,
 	)
+
+	if data, err := json.Marshal(event); err == nil {
+		s.broker.Publish(SSEEvent{
+			ID:   event.ID,
+			Type: common.HookEventName,
+			Data: data,
+		})
+	}
 }
 
 func decodeJSON(r *http.Request, v any) error {
