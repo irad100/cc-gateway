@@ -1,6 +1,12 @@
-# cc-gateway
+<p align="center">
+  <img src="assets/logo.svg" alt="cc-gateway" width="640">
+</p>
 
-Security observability and enforcement gateway for Claude Code.
+<p align="center">
+  Security observability and enforcement gateway for Claude Code.
+</p>
+
+---
 
 cc-gateway gives companies full visibility and control over how their developers use Claude Code. It intercepts Claude Code's HTTP hook events to enforce security policies, log all activity, and provide real-time monitoring — without disrupting developer workflows.
 
