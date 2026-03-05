@@ -41,6 +41,8 @@ func NewRootCmd() *cobra.Command {
 	versionCmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
 		return nil
 	}
+	initCmd := newInitCmd()
+	cmd.AddCommand(initCmd)
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(versionCmd)
 	cmd.AddCommand(newPoliciesCmd())

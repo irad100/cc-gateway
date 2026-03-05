@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/irad100/cc-gateway/internal/auth"
+	"github.com/irad100/cc-gateway/internal/config"
+	"github.com/irad100/cc-gateway/internal/metrics"
 	"github.com/irad100/cc-gateway/internal/policy"
 	"github.com/irad100/cc-gateway/internal/server"
 	"github.com/irad100/cc-gateway/internal/storage"
@@ -56,9 +59,13 @@ func applyServeOverrides(addr, db, policiesDir string) {
 }
 
 func runServe(ctx context.Context) error {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: parseLogLevel(cfg.Logging.Level),
-	}))
+	logger, logFile, err := buildLogger(cfg.Logging)
+	if err != nil {
+		return fmt.Errorf("setup logger: %w", err)
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
 
 	store, err := storage.New(cfg.Storage.DSN)
 	if err != nil {
@@ -71,7 +78,7 @@ func runServe(ctx context.Context) error {
 		return fmt.Errorf("load policies: %w", err)
 	}
 
-	engine := policy.NewEngine(policies)
+	engine := policy.NewEngine(policies, cfg.Policies.DefaultAction)
 
 	tokenMap := make(map[string]string, len(cfg.Auth.BearerTokens))
 	for _, t := range cfg.Auth.BearerTokens {
@@ -79,7 +86,8 @@ func runServe(ctx context.Context) error {
 	}
 	bearerAuth := auth.NewBearerAuth(tokenMap)
 
-	srv := server.New(cfg.Server, store, engine, bearerAuth, logger)
+	mc := metrics.NewCollector(store.DB())
+	srv := server.New(cfg.Server, store, engine, mc, bearerAuth, logger)
 
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -95,6 +103,10 @@ func runServe(ctx context.Context) error {
 				logger.Error("policy watcher stopped", "error", runErr)
 			}
 		}()
+	}
+
+	if cfg.Storage.Retention > 0 {
+		go startRetentionPruner(ctx, store, cfg.Storage.Retention, logger)
 	}
 
 	errCh := make(chan error, 1)
@@ -119,6 +131,46 @@ func runServe(ctx context.Context) error {
 	}
 }
 
+func buildLogger(
+	cfg config.LoggingConfig,
+) (*slog.Logger, *os.File, error) {
+	var output io.Writer
+	var logFile *os.File
+
+	switch cfg.Output {
+	case "stderr":
+		output = os.Stderr
+	case "stdout", "":
+		output = os.Stdout
+	default:
+		f, err := os.OpenFile(
+			cfg.Output,
+			os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+			0644,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"open log file %q: %w", cfg.Output, err,
+			)
+		}
+		output = f
+		logFile = f
+	}
+
+	level := parseLogLevel(cfg.Level)
+	opts := &slog.HandlerOptions{Level: level}
+
+	var handler slog.Handler
+	switch cfg.Format {
+	case "text":
+		handler = slog.NewTextHandler(output, opts)
+	default:
+		handler = slog.NewJSONHandler(output, opts)
+	}
+
+	return slog.New(handler), logFile, nil
+}
+
 func parseLogLevel(level string) slog.Level {
 	switch strings.ToLower(level) {
 	case "debug":
@@ -131,5 +183,35 @@ func parseLogLevel(level string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+func startRetentionPruner(
+	ctx context.Context,
+	store *storage.Store,
+	retention time.Duration,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			before := time.Now().Add(-retention)
+			count, err := store.PruneOldEvents(ctx, before)
+			if err != nil {
+				logger.Error("retention prune failed", "error", err)
+				continue
+			}
+			if count > 0 {
+				logger.Info("pruned old events",
+					"deleted", count,
+					"older_than", before.Format(time.RFC3339),
+				)
+			}
+		}
 	}
 }

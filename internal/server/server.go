@@ -12,6 +12,7 @@ import (
 	"github.com/irad100/cc-gateway/internal/auth"
 	"github.com/irad100/cc-gateway/internal/config"
 	"github.com/irad100/cc-gateway/internal/hook"
+	"github.com/irad100/cc-gateway/internal/metrics"
 	"github.com/irad100/cc-gateway/internal/policy"
 	"github.com/irad100/cc-gateway/internal/storage"
 )
@@ -20,12 +21,13 @@ const maxBodySize = 1 << 20 // 1 MiB
 
 // Server is the HTTP server for cc-gateway hook endpoints.
 type Server struct {
-	http   *http.Server
-	engine *policy.Engine
-	store  *storage.Store
-	auth   *auth.BearerAuth
-	broker *Broker
-	logger *slog.Logger
+	http    *http.Server
+	engine  *policy.Engine
+	store   *storage.Store
+	metrics *metrics.Collector
+	auth    *auth.BearerAuth
+	broker  *Broker
+	logger  *slog.Logger
 }
 
 // New creates a Server with routes, auth middleware, and timeouts.
@@ -33,17 +35,19 @@ func New(
 	cfg config.ServerConfig,
 	store *storage.Store,
 	engine *policy.Engine,
+	mc *metrics.Collector,
 	ba *auth.BearerAuth,
 	logger *slog.Logger,
 ) *Server {
 	broker := NewBroker(logger)
 
 	s := &Server{
-		engine: engine,
-		store:  store,
-		auth:   ba,
-		broker: broker,
-		logger: logger,
+		engine:  engine,
+		store:   store,
+		metrics: mc,
+		auth:    ba,
+		broker:  broker,
+		logger:  logger,
 	}
 
 	mux := http.NewServeMux()
@@ -53,6 +57,14 @@ func New(
 	mux.HandleFunc("POST /hooks/stop", s.handleStop)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.Handle("GET /events/stream", broker)
+
+	mux.HandleFunc("GET /api/v1/events", s.handleAPIEvents)
+	mux.HandleFunc("GET /api/v1/sessions", s.handleAPISessions)
+	mux.HandleFunc("GET /api/v1/policies", s.handleAPIPolicies)
+	mux.HandleFunc(
+		"POST /api/v1/policies/test", s.handleAPIPoliciesTest,
+	)
+	mux.HandleFunc("GET /api/v1/metrics", s.handleAPIMetrics)
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr,
@@ -87,7 +99,11 @@ func (s *Server) handlePreToolUse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := s.engine.Evaluate("PreToolUse", input.ToolName, input.ToolInput)
+	meta := policy.EvalMeta{
+		Cwd:            input.Cwd,
+		PermissionMode: input.PermissionMode,
+	}
+	result := s.engine.Evaluate("PreToolUse", input.ToolName, input.ToolInput, meta)
 
 	s.logEvent(r.Context(), input.CommonInput, input.ToolName,
 		string(input.ToolInput), result)
@@ -111,8 +127,14 @@ func (s *Server) handlePostToolUse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	meta := policy.EvalMeta{
+		Cwd:            input.Cwd,
+		PermissionMode: input.PermissionMode,
+	}
+	result := s.engine.Evaluate("PostToolUse", input.ToolName, input.ToolInput, meta)
+
 	s.logEvent(r.Context(), input.CommonInput, input.ToolName,
-		string(input.ToolInput), policy.EvalResult{Action: "allow"})
+		string(input.ToolInput), result)
 
 	respondJSON(w, http.StatusOK, struct{}{})
 }
@@ -124,8 +146,14 @@ func (s *Server) handleNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	content, _ := json.Marshal(map[string]string{
+		"message":           input.Message,
+		"title":             input.Title,
+		"notification_type": input.NotificationType,
+	})
+
 	s.logEvent(r.Context(), input.CommonInput, "",
-		"", policy.EvalResult{Action: "allow"})
+		string(content), policy.EvalResult{Action: "allow"})
 
 	respondJSON(w, http.StatusOK, struct{}{})
 }
@@ -137,8 +165,13 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	content, _ := json.Marshal(map[string]string{
+		"last_assistant_message": input.LastAssistantMessage,
+		"stop_hook_active":       fmt.Sprintf("%v", input.StopHookActive),
+	})
+
 	s.logEvent(r.Context(), input.CommonInput, "",
-		"", policy.EvalResult{Action: "allow"})
+		string(content), policy.EvalResult{Action: "allow"})
 
 	respondJSON(w, http.StatusOK, struct{}{})
 }

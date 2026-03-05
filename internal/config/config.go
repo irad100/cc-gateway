@@ -23,7 +23,6 @@ type AuthConfig struct {
 type TokenEntry struct {
 	TokenHash string `yaml:"token_hash"`
 	UserID    string `yaml:"user_id"`
-	UserName  string `yaml:"user_name"`
 }
 
 type StorageConfig struct {

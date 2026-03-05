@@ -15,6 +15,7 @@ import (
 	"github.com/irad100/cc-gateway/internal/auth"
 	"github.com/irad100/cc-gateway/internal/config"
 	"github.com/irad100/cc-gateway/internal/hook"
+	"github.com/irad100/cc-gateway/internal/metrics"
 	"github.com/irad100/cc-gateway/internal/policy"
 	"github.com/irad100/cc-gateway/internal/storage"
 )
@@ -53,7 +54,8 @@ func setupIntegrationServer(
 	}
 	t.Cleanup(func() { store.Close() })
 
-	engine := policy.NewEngine(policies)
+	engine := policy.NewEngine(policies, "allow")
+	mc := metrics.NewCollector(store.DB())
 
 	tokenHash := auth.HashToken(testToken)
 	ba := auth.NewBearerAuth(map[string]string{
@@ -63,7 +65,7 @@ func setupIntegrationServer(
 	logger := slog.Default()
 	cfg := config.Default().Server
 
-	s := New(cfg, store, engine, ba, logger)
+	s := New(cfg, store, engine, mc, ba, logger)
 	return s, store
 }
 
@@ -364,7 +366,8 @@ func TestIntegrationSSEStream(t *testing.T) {
 	t.Cleanup(func() { store.Close() })
 
 	policies := blockRmRfPolicy(t)
-	engine := policy.NewEngine(policies)
+	engine := policy.NewEngine(policies, "allow")
+	mc := metrics.NewCollector(store.DB())
 
 	tokenHash := auth.HashToken(testToken)
 	ba := auth.NewBearerAuth(map[string]string{
@@ -373,7 +376,7 @@ func TestIntegrationSSEStream(t *testing.T) {
 
 	logger := slog.Default()
 	cfg := config.Default().Server
-	s := New(cfg, store, engine, ba, logger)
+	s := New(cfg, store, engine, mc, ba, logger)
 
 	ts := httptest.NewServer(s.http.Handler)
 	t.Cleanup(ts.Close)
