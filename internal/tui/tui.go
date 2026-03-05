@@ -63,7 +63,6 @@ type SSEMsg EventRow
 type sessionsMsg []SessionRow
 type metricsMsg MetricsSummary
 type errMsg error
-type tickMsg time.Time
 
 // Model is the Bubble Tea model for the TUI dashboard.
 type Model struct {
@@ -91,15 +90,9 @@ func New(serverURL string) Model {
 	}
 }
 
-func tickCmd() tea.Cmd {
-	return tea.Tick(10*time.Second, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
-// Init starts the periodic refresh tick.
+// Init returns nil — data fetching is driven by external goroutines.
 func (m Model) Init() tea.Cmd {
-	return tickCmd()
+	return nil
 }
 
 // Update handles messages and returns the updated model.
@@ -163,9 +156,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case metricsMsg:
 		m.metrics = MetricsSummary(msg)
 
-	case tickMsg:
-		return m, tickCmd()
-
 	case errMsg:
 		m.err = msg
 	}
@@ -193,12 +183,6 @@ func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // Styles
 var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("15")).
-			Background(lipgloss.Color("62")).
-			Padding(0, 1)
-
 	activeTabStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("15")).
@@ -255,7 +239,7 @@ func (m Model) View() string {
 	var b strings.Builder
 
 	// Header
-	title := titleStyle.Render(" cc-gateway ")
+	title := activeTabStyle.Render(" cc-gateway ")
 	tabs := []string{"[1] Events", "[2] Violations", "[3] Sessions", "[4] Metrics"}
 	var renderedTabs []string
 	for i, t := range tabs {
